@@ -103,6 +103,41 @@ public class JSONFile<T>
   public List<T> Lines { get; set; }
 }
 
+public class JSONExchangeCoreItem
+{
+  public string Id { get; set; }
+  public string Name { get; set; }
+  public string Image { get; set; }
+  public string Category { get; set; }
+  public string DetailsId { get; set; }
+}
+
+public class JSONExchangeCoreRates
+{
+  public float Divine { get; set; }
+}
+
+public class JSONExchangeCore
+{
+  public List<JSONExchangeCoreItem> Items { get; set; }
+  public JSONExchangeCoreRates Rates { get; set; }
+  public string Primary { get; set; }
+  public string Secondary { get; set; }
+}
+
+public class JSONExchangeLine
+{
+  public string Id { get; set; }
+  public float PrimaryValue { get; set; }
+}
+
+public class JSONExchangeFile
+{
+  public JSONExchangeCore Core { get; set; }
+  public List<JSONExchangeLine> Lines { get; set; }
+  public List<JSONExchangeCoreItem> Items { get; set; }
+}
+
 
 public class FetchNinja
 {
@@ -253,6 +288,12 @@ public class FetchNinja
       
       using var client = new HttpClient(handler);
       client.Timeout = TimeSpan.FromMinutes(5);
+      
+      // Thêm headers để giả lập browser request
+      client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+      client.DefaultRequestHeaders.Add("Accept", "application/json, text/plain, */*");
+      client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+      client.DefaultRequestHeaders.Add("Referer", "https://poe.ninja/");
       
       var response = await client.GetAsync(Url);
       response.EnsureSuccessStatusCode();

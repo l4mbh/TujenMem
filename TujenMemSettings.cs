@@ -53,6 +53,8 @@ public class TujenMemSettings : ISettings
 
     public List<string> Whitelist { get; set; } = new List<string>();
 
+    public List<string> BuyAtAllCost { get; set; } = new List<string>();
+
     public List<(string, float?, string)> CustomPrices { get; set; } = new List<(string, float?, string)>();
 
     public List<(List<string>, string)> ItemMappings { get; set; } = new List<(List<string>, string)>();
@@ -139,6 +141,46 @@ public class TujenMemSettings : ISettings
             }
         };
 
+        var buyAtAllCostInput = "";
+        var buyAtAllCostSelected = "";
+        BuyAtAllCostNode = new CustomNode
+        {
+            DrawDelegate = () =>
+            {
+                if (ImGui.TreeNode("Buy At All Cost"))
+                {
+                    ImGui.TextColored(new System.Numerics.Vector4(1, 0.5f, 0, 1), "Items này sẽ mua BẤT CHẤP giá (nếu không có trong Blacklist)");
+                    ImGui.InputTextWithHint("##BuyAtAllCostInput", "Keyword", ref buyAtAllCostInput, 100);
+                    ImGui.SameLine();
+                    if (ImGui.Button("Add to Buy At All Cost"))
+                    {
+                        BuyAtAllCost.Add(buyAtAllCostInput);
+                        buyAtAllCostInput = "";
+                    }
+
+                    ImGui.BeginChild("##BuyAtAllCostList", new System.Numerics.Vector2(0, 200), ImGuiChildFlags.Border);
+                    foreach (var s in BuyAtAllCost)
+                    {
+                        if (ImGui.Selectable(s, s == buyAtAllCostSelected))
+                        {
+                            buyAtAllCostSelected = s;
+                        }
+                    }
+                    ImGui.EndChild();
+                    if (buyAtAllCostSelected != "")
+                    {
+                        ImGui.Text("Selected: " + buyAtAllCostSelected);
+                        ImGui.SameLine();
+                        if (ImGui.Button("Remove"))
+                        {
+                            BuyAtAllCost.Remove(buyAtAllCostSelected);
+                            buyAtAllCostSelected = "";
+                        }
+                    }
+                    ImGui.TreePop();
+                }
+            }
+        };
 
         (string, float?, string) customPriceSelected = ("", null, "");
         var customPriceInput = "";
@@ -334,7 +376,7 @@ public class TujenMemSettings : ISettings
 
     public HotKeySettings HotKeySettings { get; set; } = new HotKeySettings();
 
-    public TextNode League { get; set; } = new TextNode("Ancestor");
+    public TextNode League { get; set; } = new TextNode("Keepers");
 
     [Menu("HoverItem Delay", "Delay used to wait inbetween checks for the Hoveritem (in ms).")]
     public RangeNode<int> HoverItemDelay { get; set; } = new RangeNode<int>(15, 0, 100);
@@ -354,6 +396,10 @@ public class TujenMemSettings : ISettings
 
     [JsonIgnore]
     public CustomNode BlackListNode { get; set; }
+
+    [JsonIgnore]
+    public CustomNode BuyAtAllCostNode { get; set; }
+
     [JsonIgnore]
     public CustomNode CustomPricesNode { get; set; }
     [JsonIgnore]

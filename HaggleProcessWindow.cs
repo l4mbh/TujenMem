@@ -95,26 +95,43 @@ public class HaggleProcessWindow
       }
       else if (baseItem.BaseName.Contains("Cluster"))
       {
-        var baseCluster = inventoryItem.Item.GetComponent<ExileCore.PoEMemory.Components.Base>();
-        var mods = inventoryItem.Item.GetComponent<ExileCore.PoEMemory.Components.Mods>();
-        var itemLevel = mods.ItemLevel;
-        var passives = int.Parse(Regex.Replace(mods.EnchantedStats[0], "[^0-9]", ""));
-        var name = mods.EnchantedStats[2].Replace("Added Small Passive Skills grant: ", "").Trim();
-
-        Items.Add(new HaggleItemClusterJewel
+        try
         {
-          Address = address,
-          Position = inventoryItem.GetClientRect().Center,
-          Name = name,
-          Type = type,
-          Amount = stack?.Size ?? 1,
-          Value = 0,
-          Price = null,
-          ItemLevel = itemLevel,
-          PassiveSkills = passives,
-          BaseType = baseCluster.Name
-        });
+          var baseCluster = inventoryItem.Item.GetComponent<ExileCore.PoEMemory.Components.Base>();
+          var mods = inventoryItem.Item.GetComponent<ExileCore.PoEMemory.Components.Mods>();
+          
+          if (mods?.EnchantedStats == null || mods.EnchantedStats.Count < 3)
+          {
+            Log.Error($"Cluster Jewel không có đủ EnchantedStats. Count: {mods?.EnchantedStats?.Count ?? 0}");
+            continue;
+          }
+          
+          var itemLevel = mods.ItemLevel;
+          var passives = int.Parse(Regex.Replace(mods.EnchantedStats[0], "[^0-9]", ""));
+          var name = mods.EnchantedStats[2].Replace("Added Small Passive Skills grant: ", "").Trim();
+          
+          Log.Debug($"Đọc Cluster Jewel: Name={name}, ItemLevel={itemLevel}, Passives={passives}, BaseType={baseCluster.Name}");
 
+          Items.Add(new HaggleItemClusterJewel
+          {
+            Address = address,
+            Position = inventoryItem.GetClientRect().Center,
+            Name = name,
+            Type = type,
+            Amount = stack?.Size ?? 1,
+            Value = 0,
+            Price = null,
+            ItemLevel = itemLevel,
+            PassiveSkills = passives,
+            BaseType = baseCluster.Name
+          });
+        }
+        catch (Exception ex)
+        {
+          Log.Error($"Lỗi khi đọc Cluster Jewel: {ex.Message}");
+        }
+
+        continue;
       }
       else if (type.Contains("Gem"))
       {
@@ -396,18 +413,55 @@ public class HaggleProcessWindow
         else if (item is HaggleItemClusterJewel)
         {
           var cluster = item as HaggleItemClusterJewel;
+          Log.Debug($"Tìm giá cho Cluster Jewel: Name='{cluster.Name}', ItemLevel={cluster.ItemLevel}, Passives={cluster.PassiveSkills}, BaseType='{cluster.BaseType}'");
+          
+          var allMatches = Ninja.Items[item.Name].Where(x => x is NinjaItemClusterJewel).Cast<NinjaItemClusterJewel>().ToList();
+          Log.Debug($"Tìm thấy {allMatches.Count} Cluster Jewel cùng tên trong Ninja data");
+          
+          foreach (var match in allMatches)
+          {
+            Log.Debug($"  - Ninja: ItemLevel={match.ItemLevel}, Passives={match.PassiveSkills}, BaseType='{match.BaseType}', ChaosValue={match.ChaosValue}");
+          }
+          
           ninjaItem = Ninja.Items[item.Name].Find(x =>
           {
-            if (x is NinjaItemClusterJewel)
+            if (x is NinjaItemClusterJewel ninjaCluster)
             {
-              var ninjaCluster = x as NinjaItemClusterJewel;
-              return ninjaCluster.ChaosValue > 10
-                && ninjaCluster.ItemLevel == cluster.ItemLevel
-                && ninjaCluster.PassiveSkills == cluster.PassiveSkills;
+              var matchLevel = ninjaCluster.ItemLevel == cluster.ItemLevel;
+              var matchPassives = ninjaCluster.PassiveSkills == cluster.PassiveSkills;
+              var hasValue = ninjaCluster.ChaosValue > 10;
+              
+              if (!hasValue)
+              {
+                Log.Debug($"  > Bỏ qua vì giá <= 10 chaos: {ninjaCluster.ChaosValue}");
+              }
+              
+              return hasValue && matchLevel && matchPassives;
             }
             return false;
+          });
+          
+          if (ninjaItem == null)
+          {
+            Log.Debug($"Không tìm thấy Cluster Jewel phù hợp, thử tìm với điều kiện lỏng hơn (bỏ qua ItemLevel)");
+            ninjaItem = Ninja.Items[item.Name].Find(x =>
+            {
+              if (x is NinjaItemClusterJewel ninjaCluster)
+              {
+                return ninjaCluster.ChaosValue > 10 && ninjaCluster.PassiveSkills == cluster.PassiveSkills;
+              }
+              return false;
+            });
+            
+            if (ninjaItem != null)
+            {
+              Log.Debug($"Tìm thấy match khi bỏ qua ItemLevel: ChaosValue={ninjaItem.ChaosValue}");
+            }
           }
-          );
+          else
+          {
+            Log.Debug($"Tìm thấy Cluster Jewel phù hợp: ChaosValue={ninjaItem.ChaosValue}");
+          }
         }
         
         if (ninjaItem != null)
@@ -428,14 +482,24 @@ public class HaggleProcessWindow
         break;
       }
 
-      var itemPrice = item?.Price?.TotalValue() ?? 0;
-      if (itemPrice * TujenMem.Instance.Settings.ArtifactValueSettings.ItemPriceMultiplier.Value >= item.Value)
+      // Kiểm tra Buy At All Cost: nếu item trong list này thì mua bất chấp giá
+      var isBuyAtAllCost = IsBuyAtAllCost(item);
+      if (isBuyAtAllCost)
       {
-        item.State = HaggleItemState.TooExpensive;
+        Log.Debug($"Item {item.Name} is in BuyAtAllCost list - buying regardless of price");
+        item.State = HaggleItemState.Priced;
       }
       else
       {
-        item.State = HaggleItemState.Priced;
+        var itemPrice = item?.Price?.TotalValue() ?? 0;
+        if (itemPrice * TujenMem.Instance.Settings.ArtifactValueSettings.ItemPriceMultiplier.Value >= item.Value)
+        {
+          item.State = HaggleItemState.TooExpensive;
+        }
+        else
+        {
+          item.State = HaggleItemState.Priced;
+        }
       }
 
       if (ninjaItem != null && TujenMem.Instance.Settings.SillyOrExperimenalFeatures.EnableStatistics)
@@ -617,6 +681,18 @@ public class HaggleProcessWindow
     foreach (string white in TujenMem.Instance.Settings.Whitelist)
     {
       if (item.Name.Contains(white) || item.Type.Contains(white))
+      {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private bool IsBuyAtAllCost(HaggleItem item)
+  {
+    foreach (string buyAtAllCost in TujenMem.Instance.Settings.BuyAtAllCost)
+    {
+      if (item.Name.Contains(buyAtAllCost) || item.Type.Contains(buyAtAllCost))
       {
         return true;
       }

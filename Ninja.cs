@@ -17,7 +17,8 @@ namespace TujenMem;
 public enum DownloadType
 {
     Currency,
-    Items
+    Items,
+    Exchange
 }
 public enum DownloadIntegrity
 {
@@ -83,6 +84,19 @@ public class Ninja
         ("ClusterJewel", DownloadType.Items)
     };
 
+    // Các loại item hỗ trợ Exchange API (poe.ninja/poe1/api/economy/exchange)
+    // Khi dùng nút "Download Exchange Data", các loại này sẽ được tải từ Exchange API
+    // Exchange API cung cấp dữ liệu chính xác hơn cho currency và các item có thể trade trực tiếp
+    private static readonly List<string> ExchangeTypes = new List<string>
+    {
+        "Currency",
+        "Fragment",
+        "Oil",
+        "Scarab",
+        "Fossil",
+        "Essence"
+    };
+
     public static bool IsValid
     {
         get
@@ -100,6 +114,11 @@ public class Ninja
             if (ImGui.Button("Download Data"))
             {
                 Task.Run(DownloadFilesAsync).ContinueWith((t) => { _dirty = true; CheckIntegrity(); }).ContinueWith(async (t) => { await Parse(); });
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Download Exchange Data"))
+            {
+                Task.Run(DownloadExchangeFilesAsync).ContinueWith((t) => { _dirty = true; CheckIntegrity(); }).ContinueWith(async (t) => { await Parse(); });
             }
             ImGui.SameLine();
             if (ImGui.Button("Re-Check Integrity"))
@@ -251,6 +270,54 @@ public class Ninja
         }
     }
 
+    // Thử parse file theo format Exchange API
+    // Exchange API có cấu trúc: items[] ở root chứa metadata, lines[] chứa giá
+    // primaryValue trong Exchange API đã là giá chaos equivalent
+    private static async Task<bool> TryParseExchangeFile(string filePath, List<NinjaItem> result)
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                Log.Debug($"TryParseExchangeFile: File not exists: {filePath}");
+                return false;
+            }
+
+            var content = await File.ReadAllTextAsync(filePath);
+            Log.Debug($"TryParseExchangeFile: Content length: {content.Length} chars");
+            
+            var exchangeData = Newtonsoft.Json.JsonConvert.DeserializeObject<JSONExchangeFile>(content);
+            
+            if (exchangeData?.Items == null || exchangeData?.Lines == null)
+            {
+                Log.Debug($"TryParseExchangeFile: Invalid Exchange format. Items null: {exchangeData?.Items == null}, Lines null: {exchangeData?.Lines == null}");
+                return false;
+            }
+
+            // Dùng mảng Items ở root level để mapping (không phải Core.Items)
+            var itemsDict = exchangeData.Items.ToDictionary(i => i.Id, i => i.Name);
+            Log.Debug($"TryParseExchangeFile: Found {itemsDict.Count} items");
+
+            int addedCount = 0;
+            foreach (var line in exchangeData.Lines)
+            {
+                if (itemsDict.TryGetValue(line.Id, out var itemName) && line.PrimaryValue > 0)
+                {
+                    result.Add(new NinjaItem(itemName, line.PrimaryValue));
+                    addedCount++;
+                }
+            }
+            
+            Log.Debug($"TryParseExchangeFile: Successfully parsed {addedCount} items from Exchange format");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"TryParseExchangeFile exception: {ex.Message}");
+            return false;
+        }
+    }
+
     public static async Task Parse()
     {
         _items.Clear();
@@ -266,6 +333,12 @@ public class Ninja
         foreach (var dl in DownloadList)
         {
             var filePath = GetFilePathForName(dl.Item1);
+            
+            if (ExchangeTypes.Contains(dl.Item1) && await TryParseExchangeFile(filePath, result))
+            {
+                continue;
+            }
+
             switch (dl.Item2)
             {
                 case DownloadType.Currency:
@@ -394,30 +467,41 @@ public class Ninja
         {
             client.Timeout = TimeSpan.FromMinutes(5);
             
-            using (HttpResponseMessage response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+            // Thêm headers để giả lập browser request
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "application/json, text/plain, */*");
+            client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
+            client.DefaultRequestHeaders.Add("Referer", "https://poe.ninja/");
+            
+            try
             {
+                Log.Debug($"Downloading from: {url}");
+                var response = await client.GetAsync(url);
                 response.EnsureSuccessStatusCode();
-                await DownloadStreamToFile(response, filePath);
-            }
-        }
-    }
-
-    private static async Task DownloadStreamToFile(HttpResponseMessage response, string filePath)
-    {
-        using (Stream contentStream = await response.Content.ReadAsStreamAsync())
-        using (FileStream fileStream = new FileStream(filePath, FileMode.Create))
-        {
-            var totalBytes = response.Content.Headers.ContentLength.GetValueOrDefault();
-            var buffer = new byte[8192];
-            var bytesRead = 0L;
-
-            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) != 0)
-            {
-                await fileStream.WriteAsync(buffer, 0, (int)bytesRead);
-                if (totalBytes > 0)
+                
+                var content = await response.Content.ReadAsStringAsync();
+                Log.Debug($"Downloaded {content.Length} characters");
+                
+                // Debug: Log một phần response để xem cấu trúc
+                if (content.Length > 0 && content.Length < 500)
                 {
-                    fileProgress[filePath] = (float)(fileStream.Length * 1.0 / totalBytes);
+                    Log.Debug($"Response preview: {content}");
                 }
+                else if (content.Length >= 500)
+                {
+                    Log.Debug($"Response preview (first 500 chars): {content.Substring(0, 500)}...");
+                }
+                
+                await File.WriteAllTextAsync(filePath, content);
+                fileProgress[filePath] = 1.0f;
+                
+                Log.Debug($"Saved to: {filePath}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error downloading {url}: {ex.Message}");
+                fileProgress[filePath] = 0f;
+                throw;
             }
         }
     }
@@ -439,6 +523,79 @@ public class Ninja
         await Task.WhenAll(tasks);
     }
 
+    // Tải giá từ Exchange API cho các loại trong ExchangeTypes
+    // Exchange API cung cấp dữ liệu real-time và chính xác hơn cho currency exchanges
+    private static async Task DownloadExchangeFilesAsync()
+    {
+        if (!Directory.Exists(DataFolder))
+        {
+            Directory.CreateDirectory(DataFolder);
+        }
+        
+        var league = TujenMem.Instance?.Settings?.League?.Value ?? "Ancestor";
+        Log.Debug($"Downloading Exchange data for league: {league}");
+        
+        List<Task> tasks = new List<Task>();
+        foreach (var type in ExchangeTypes)
+        {
+            var filePath = GetFilePathForName(type);
+            var url = GetExchangeUrl(type);
+            Log.Debug($"Downloading Exchange data: {type} from {url}");
+            fileProgress[filePath] = 0;
+            tasks.Add(DownloadFileAsync(url, filePath));
+        }
+        await Task.WhenAll(tasks);
+        
+        // Kiểm tra xem có data không
+        await ValidateExchangeData();
+    }
+    
+    private static async Task ValidateExchangeData()
+    {
+        try
+        {
+            var testFile = GetFilePathForName("Currency");
+            if (File.Exists(testFile))
+            {
+                var content = await File.ReadAllTextAsync(testFile);
+                var testData = Newtonsoft.Json.JsonConvert.DeserializeObject<JSONExchangeFile>(content);
+                
+                if (testData?.Items == null || testData.Items.Count == 0 || testData?.Lines == null || testData.Lines.Count == 0)
+                {
+                    var league = TujenMem.Instance?.Settings?.League?.Value ?? "Unknown";
+                    Log.Error($"========================================");
+                    Log.Error($"Exchange API returned EMPTY data for league '{league}'!");
+                    Log.Error($"Response structure exists but arrays are empty:");
+                    Log.Error($"  - core.items: {testData?.Core?.Items?.Count ?? 0}");
+                    Log.Error($"  - items: {testData?.Items?.Count ?? 0}");
+                    Log.Error($"  - lines: {testData?.Lines?.Count ?? 0}");
+                    Log.Error($"");
+                    Log.Error($"This means league name '{league}' is INCORRECT or has no data.");
+                    Log.Error($"");
+                    Log.Error($"Common league names to try:");
+                    Log.Error($"  - Standard (permanent softcore)");
+                    Log.Error($"  - Hardcore (permanent hardcore)");
+                    Log.Error($"  - SSF Standard");
+                    Log.Error($"  - Check current challenge league at: https://poe.ninja");
+                    Log.Error($"");
+                    Log.Error($"Test URL in browser to verify:");
+                    Log.Error($"  https://poe.ninja/poe1/api/economy/exchange/current/overview?league={league}&type=Currency");
+                    Log.Error($"========================================");
+                }
+                else
+                {
+                    Log.Debug($"✓ Exchange API validation SUCCESS!");
+                    Log.Debug($"  - Items metadata: {testData.Items.Count}");
+                    Log.Debug($"  - Price entries: {testData.Lines.Count}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error validating Exchange data: {ex.Message}");
+        }
+    }
+
     private static string GetFilePathForName(string name)
     {
         return Path.Join(DataFolder, name + ".json");
@@ -446,7 +603,7 @@ public class Ninja
 
     private static string GetUrlForDownloadFile((string, DownloadType) dl)
     {
-        var league = TujenMem.Instance?.Settings?.League ?? "Ancestor";
+        var league = TujenMem.Instance?.Settings?.League?.Value ?? "Ancestor";
         switch (dl.Item2)
         {
             case DownloadType.Currency:
@@ -456,6 +613,12 @@ public class Ninja
             default:
                 throw new Exception("Unknown DownloadType");
         }
+    }
+
+    private static string GetExchangeUrl(string type)
+    {
+        var league = TujenMem.Instance?.Settings?.League?.Value ?? "Ancestor";
+        return $"https://poe.ninja/poe1/api/economy/exchange/current/overview?league={league}&type={type}";
     }
 
 }
