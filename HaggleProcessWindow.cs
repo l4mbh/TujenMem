@@ -299,7 +299,21 @@ public class HaggleProcessWindow
         yield break;
       }
 
-      string priceString = ttPriceBody.GetChildAtIndex(0).Text;
+      var ttPriceBodyChild = ttPriceBody.GetChildAtIndex(0);
+      if (ttPriceBodyChild == null)
+      {
+        if (attempts < 3)
+        {
+          Log.Debug($"Price body child at index 0 not found, attempt {attempts}/3");
+          continue;
+        }
+        Error.Add("Error while reading tooltip", $"Price body element with index 0 not found.\nItem: {item.Name}\nPlease check your hover delay settings and try again.");
+        Error.Add("Tooltip Structure", Error.VisualizeElementTree(TujenMem.Instance.GameController.IngameState.IngameUi.HaggleWindow.InventoryItems[itemIndex].Tooltip));
+        Error.Show();
+        yield break;
+      }
+      
+      string priceString = ttPriceBodyChild.Text;
       string cleaned = new string(priceString.Where(char.IsDigit).ToArray()).Trim();
       var ttPrice = 0;
       try
@@ -314,7 +328,21 @@ public class HaggleProcessWindow
         yield break;
       }
 
-      var ttPriceType = ttPriceBody.GetChildAtIndex(2).Text;
+      var ttPriceTypeChild = ttPriceBody.GetChildAtIndex(2);
+      if (ttPriceTypeChild == null)
+      {
+        if (attempts < 3)
+        {
+          Log.Debug($"Price type child at index 2 not found, attempt {attempts}/3");
+          continue;
+        }
+        Error.Add("Error while reading tooltip", $"Price type element with index 2 not found.\nItem: {item.Name}\nPlease check your hover delay settings and try again.");
+        Error.Add("Tooltip Structure", Error.VisualizeElementTree(TujenMem.Instance.GameController.IngameState.IngameUi.HaggleWindow.InventoryItems[itemIndex].Tooltip));
+        Error.Show();
+        yield break;
+      }
+      
+      var ttPriceType = ttPriceTypeChild.Text;
 
       item.Price = new HaggleCurrency(ttPriceType, ttPrice);
       item.Value = 0;

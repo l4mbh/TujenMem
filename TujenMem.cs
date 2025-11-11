@@ -23,6 +23,8 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
     private static readonly Random _random = new Random();
 
     public HaggleState HaggleState = HaggleState.Idle;
+    private DanningProcessWindow _danningWindow = null;
+    private DanningProcess _danningProcess = null;
 
     private static Vector2 GetRandomPositionInRect(RectangleF rect, float paddingPercent = 0.2f)
     {
@@ -58,6 +60,8 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
         Settings.HotKeySettings.StopHotKey.OnValueChanged += () => { Input.RegisterKey(Settings.HotKeySettings.StopHotKey); };
         Input.RegisterKey(Settings.HotKeySettings.RollAndBlessHotKey);
         Settings.HotKeySettings.RollAndBlessHotKey.OnValueChanged += () => { Input.RegisterKey(Settings.HotKeySettings.RollAndBlessHotKey); };
+        Input.RegisterKey(Settings.HotKeySettings.RollDanningHotKey);
+        Settings.HotKeySettings.RollDanningHotKey.OnValueChanged += () => { Input.RegisterKey(Settings.HotKeySettings.RollDanningHotKey); };
 
         Ninja.CheckIntegrity();
         Task.Run(Ninja.Parse);
@@ -73,6 +77,7 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
     private readonly static string _coroutineName = "TujenMem_Haggle";
     private readonly static string _empty_inventory_coroutine_name = "TujenMem_Inventory";
     private readonly static string _reroll_coroutine_name = "TujenMem_Reroll";
+    private readonly static string _danning_coroutine_name = "TujenMem_Danning";
     public override Job Tick()
     {
         if (Settings.HotKeySettings.StartHotKey.PressedOnce())
@@ -102,6 +107,21 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             {
                 Log.Debug("Stopping Roll and Bless Coroutine");
                 var routine = Core.ParallelRunner.FindByName(PrepareLogbook.Runner.CoroutineNameRollAndBless);
+                routine?.Done();
+            }
+        }
+        if (Settings.HotKeySettings.RollDanningHotKey.PressedOnce())
+        {
+            Log.Debug("Roll Danning Hotkey pressed");
+            if (Core.ParallelRunner.FindByName(_danning_coroutine_name) == null)
+            {
+                Log.Debug("Starting Roll Danning Coroutine");
+                Core.ParallelRunner.Run(new Coroutine(RollDanningCoroutine(), this, _danning_coroutine_name));
+            }
+            else
+            {
+                Log.Debug("Stopping Roll Danning Coroutine");
+                var routine = Core.ParallelRunner.FindByName(_danning_coroutine_name);
                 routine?.Done();
             }
         }
@@ -196,8 +216,10 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
                 yield return Input.KeyPress(Keys.Escape);
                 yield return new WaitTime(Settings.HoverItemDelay * 3);
             }
+            Log.Debug("Tujen window already open");
             yield break;
         }
+        
         yield return ExitAllWindows();
 
         foreach (LabelOnGround labelOnGround in itemsOnGround)
@@ -363,10 +385,21 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
 
         Log.Debug("Initiaizing Haggle process");
         _process = new HaggleProcess();
+        var isFirstRoll = true;
+        
         while (_process.CanRun() || Settings.DebugOnly)
         {
+            if (!isFirstRoll && HaggleStock.Coins > 0)
+            {
+                Log.Debug("Rerolling window for next iteration...");
+                yield return ReRollWindow();
+                yield return new WaitTime(Settings.HoverItemDelay * 3);
+            }
+            isFirstRoll = false;
+            
             _process.InitializeWindow();
             yield return _process.Run();
+            
             if (Settings.DebugOnly)
             {
                 break;
@@ -383,14 +416,10 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             yield return new WaitTime(Settings.HoverItemDelay * 3);
             if (ShouldEmptyInventory())
             {
+                Log.Debug("Inventory is full, emptying...");
                 yield return EmptyInventoryCoRoutine();
+                yield return new WaitTime(Settings.HoverItemDelay * 3);
             }
-            yield return new WaitTime(Settings.HoverItemDelay * 3);
-            if (HaggleStock.Coins > 0)
-            {
-                yield return ReRollWindow();
-            }
-            yield return new WaitTime(Settings.HoverItemDelay * 3);
         }
 
 
@@ -453,6 +482,48 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
         Log.Error("Failed to reroll window after 3 attempts");
     }
 
+    private IEnumerator RollDanningCoroutine()
+    {
+        Log.Debug("Starting Roll Dannig process");
+        
+        // Kiểm tra HaggleWindow đã mở chưa
+        var mainWindow = GameController.IngameState.IngameUi.HaggleWindow;
+        if (mainWindow is { IsVisible: false })
+        {
+            Log.Error("Haggle window not open! Please open Dannig window first (press F5 when standing near Dannig with his window open).");
+            yield break;
+        }
+
+        Log.Debug("Dannig window is open, starting process");
+
+        // Không cần StartUpChecks vì Dannig không cần check artifacts như Tujen
+        
+        Log.Debug("Initializing Dannig process");
+        _danningProcess = new DanningProcess();
+        
+        if (_danningWindow == null)
+        {
+            _danningWindow = new DanningProcessWindow();
+        }
+        
+        // Chạy một lần mua items
+        _danningProcess.InitializeWindow();
+        
+        if (!_danningWindow.IsWindowOpen())
+        {
+            Log.Error("Dannig window check failed. Make sure you have the Exchange/Dannig window open.");
+            yield break;
+        }
+
+        Log.Debug("Running Dannig buy process...");
+        yield return _danningProcess.Run();
+        
+        Log.Debug("Dannig process completed!");
+        
+        var routine = Core.ParallelRunner.FindByName(_danning_coroutine_name);
+        routine?.Done();
+    }
+
     public void StopAllRoutines()
     {
         Log.Debug("Stopping all routines");
@@ -461,6 +532,8 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
         routine = Core.ParallelRunner.FindByName(_empty_inventory_coroutine_name);
         routine?.Done();
         routine = Core.ParallelRunner.FindByName(_reroll_coroutine_name);
+        routine?.Done();
+        routine = Core.ParallelRunner.FindByName(_danning_coroutine_name);
         routine?.Done();
         routine = Core.ParallelRunner.FindByName(PrepareLogbook.Runner.CoroutineNameRollAndBless);
         routine?.Done();
@@ -479,6 +552,7 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             return Core.ParallelRunner.FindByName(_coroutineName) != null
                 || Core.ParallelRunner.FindByName(_empty_inventory_coroutine_name) != null
                 || Core.ParallelRunner.FindByName(_reroll_coroutine_name) != null
+                || Core.ParallelRunner.FindByName(_danning_coroutine_name) != null
                 || Core.ParallelRunner.FindByName(PrepareLogbook.Runner.CoroutineNameRollAndBless) != null
                 || Core.ParallelRunner.FindByName(BuyAssistance.BuyAssistance._sendPmCoroutineName) != null
                 || Core.ParallelRunner.FindByName(BuyAssistance.BuyAssistance._extractMoneyFromStashCoroutineName) != null;
@@ -539,6 +613,89 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             }
 
             ImGui.End();
+        }
+
+        if (Settings.Danning.ShowDebugWindow.Value)
+        {
+            if (_danningWindow == null)
+            {
+                _danningWindow = new DanningProcessWindow();
+            }
+
+            var isWindowOpen = _danningWindow.IsWindowOpen();
+            
+            if (isWindowOpen)
+            {
+                _danningWindow.ReadItems();
+            }
+            
+            if (Settings.Danning.ShowDebugWindow.Value)
+            {
+                var show = Settings.Danning.ShowDebugWindow.Value;
+                ImGui.SetNextWindowSize(new System.Numerics.Vector2(1000, 600), ImGuiCond.FirstUseEver);
+                ImGui.Begin("Dannig Debug Window", ref show);
+                Settings.Danning.ShowDebugWindow.Value = show;
+
+                ImGui.TextColored(new System.Numerics.Vector4(1.0f, isWindowOpen ? 0.5f : 1.0f, isWindowOpen ? 0.5f : 1.0f, 1.0f), 
+                    $"Window Status: {_danningWindow.WindowStatus}");
+                ImGui.Separator();
+                
+                ImGui.Text($"ExpeditionNpcDialog Children Count: {_danningWindow.ChildrenCount}");
+                ImGui.Text($"Items Found: {_danningWindow.Items.Count}");
+                ImGui.Separator();
+
+                if (ImGui.CollapsingHeader("Debug Information"))
+                {
+                    ImGui.TextWrapped(_danningWindow.DebugInfo);
+                }
+
+                if (_danningWindow.Items.Count > 0)
+                {
+                    ImGui.Separator();
+                    if (ImGui.BeginTable("danningTable", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY))
+                    {
+                        ImGui.TableSetupColumn("Index", ImGuiTableColumnFlags.WidthFixed, 60);
+                        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
+                        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 100);
+                        ImGui.TableSetupColumn("Amount", ImGuiTableColumnFlags.WidthFixed, 60);
+                        ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 150);
+                        ImGui.TableSetupColumn("Path", ImGuiTableColumnFlags.WidthStretch);
+                        ImGui.TableSetupColumn("Position", ImGuiTableColumnFlags.WidthFixed, 120);
+                        ImGui.TableHeadersRow();
+
+                        foreach (DanningItem item in _danningWindow.Items)
+                        {
+                            ImGui.TableNextRow();
+                            ImGui.TableNextColumn();
+                            ImGui.Text(item.ItemIndex >= 0 ? item.ItemIndex.ToString() : "N/A");
+                            ImGui.TableNextColumn();
+                            ImGui.Text(item.Name);
+                            ImGui.TableNextColumn();
+                            ImGui.Text(item.Type);
+                            ImGui.TableNextColumn();
+                            ImGui.Text(item.Amount.ToString());
+                            ImGui.TableNextColumn();
+                            ImGui.TextColored(
+                                item.PriceString.Contains("N/A") 
+                                    ? new System.Numerics.Vector4(1.0f, 1.0f, 0.0f, 1.0f) 
+                                    : new System.Numerics.Vector4(0.5f, 1.0f, 0.5f, 1.0f),
+                                item.PriceString);
+                            ImGui.TableNextColumn();
+                            ImGui.TextWrapped(item.Path);
+                            ImGui.TableNextColumn();
+                            ImGui.Text($"({item.Position.X:F0}, {item.Position.Y:F0})");
+                        }
+
+                        ImGui.EndTable();
+                    }
+                }
+                else
+                {
+                    ImGui.TextColored(new System.Numerics.Vector4(1.0f, 1.0f, 0.0f, 1.0f), "No items found in Dannig window");
+                }
+
+                ImGui.End();
+            }
         }
 
         var expeditionWindow = GameController.IngameState.IngameUi.ExpeditionWindow;

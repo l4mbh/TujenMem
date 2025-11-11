@@ -339,6 +339,9 @@ public class TujenMemSettings : ISettings
     [Menu("HoverItem Delay", "Delay used to wait inbetween checks for the Hoveritem (in ms).")]
     public RangeNode<int> HoverItemDelay { get; set; } = new RangeNode<int>(15, 0, 100);
     public ToggleNode EmptyInventoryAfterHaggling { get; set; } = new ToggleNode(false);
+    
+    [Menu("Max Consecutive Empty Rolls", "Số lần roll liên tiếp không mua được gì trước khi dừng (để tránh lãng phí coins). 0 = không giới hạn")]
+    public RangeNode<int> MaxConsecutiveEmptyRolls { get; set; } = new RangeNode<int>(3, 0, 10);
 
 
     // ---------------------------------------------------------------------------------------------------
@@ -373,6 +376,7 @@ public class TujenMemSettings : ISettings
     public PrepareLogbookSettings PrepareLogbookSettings { get; set; } = new PrepareLogbookSettings();
     public SillyOrExperimenalFeatures SillyOrExperimenalFeatures { get; set; } = new SillyOrExperimenalFeatures();
     public Gwennen Gwennen { get; set; } = new Gwennen();
+    public Danning Danning { get; set; } = new Danning();
 
     public ListNode LogLevel { get; set; } = new ListNode
     {
@@ -387,6 +391,7 @@ public class HotKeySettings
     public HotkeyNode StartHotKey { get; set; } = new HotkeyNode(Keys.F1);
     public HotkeyNode StopHotKey { get; set; } = new HotkeyNode(Keys.Delete);
     public HotkeyNode RollAndBlessHotKey { get; set; } = new HotkeyNode(Keys.F4);
+    public HotkeyNode RollDanningHotKey { get; set; } = new HotkeyNode(Keys.F5);
 }
 
 [Submenu(CollapsedByDefault = true)]
@@ -626,6 +631,103 @@ public class Gwennen
                     ImGui.InputTextWithHint("##BaseInput", "Keyword", ref baseListInput, 100);
                     ImGui.SameLine();
                     if (ImGui.Button("Add to Blacklist"))
+                    {
+                        BaseList.Add(baseListInput);
+                        baseListInput = "";
+                    }
+
+                    ImGui.BeginChild("##BaseListList", new System.Numerics.Vector2(0, 200), ImGuiChildFlags.Border);
+                    foreach (var s in BaseList)
+                    {
+                        if (ImGui.Selectable(s, s == baseListSelected))
+                        {
+                            baseListSelected = s;
+                        }
+                    }
+                    ImGui.EndChild();
+                    if (baseListSelected != "")
+                    {
+                        ImGui.Text("Selected: " + baseListSelected);
+                        ImGui.SameLine();
+                        if (ImGui.Button("Remove"))
+                        {
+                            BaseList.Remove(baseListSelected);
+                            baseListSelected = "";
+                        }
+                    }
+                    ImGui.TreePop();
+                }
+            }
+        };
+    }
+}
+
+[Submenu(CollapsedByDefault = true)]
+public class DanningArtifactCostSettings
+{
+    [Menu("Lesser Artifact Max Cost", "Cost tối đa để mua Lesser Artifact (0.5-0.8, hiển thị 5-8)")]
+    public RangeNode<float> LesserMaxCost { get; set; } = new RangeNode<float>(0.8f, 0.5f, 0.8f);
+
+    [Menu("Greater Artifact Max Cost", "Cost tối đa để mua Greater Artifact (0.5-0.8, hiển thị 5-8)")]
+    public RangeNode<float> GreaterMaxCost { get; set; } = new RangeNode<float>(0.8f, 0.5f, 0.8f);
+
+    [Menu("Grand Artifact Max Cost", "Cost tối đa để mua Grand Artifact (0.5-0.8, hiển thị 5-8)")]
+    public RangeNode<float> GrandMaxCost { get; set; } = new RangeNode<float>(0.8f, 0.5f, 0.8f);
+
+    [Menu("Exceptional Artifact Max Cost", "Cost tối đa để mua Exceptional Artifact (0.5-0.8, hiển thị 5-8)")]
+    public RangeNode<float> ExceptionalMaxCost { get; set; } = new RangeNode<float>(0.8f, 0.5f, 0.8f);
+}
+
+[Submenu(CollapsedByDefault = true)]
+public class Danning
+{
+    [Menu("Show Debug Window", "Hiển thị cửa sổ debug để test và xem thông tin items")]
+    public ToggleNode ShowDebugWindow { get; set; } = new ToggleNode(false);
+
+    [Menu("Buy Black Scythe Artifacts", "Mua artifacts của Black Scythe")]
+    public ToggleNode BuyBlackScytheArtifacts { get; set; } = new ToggleNode(true);
+
+    [Menu("Buy Order Artifacts", "Mua artifacts của Order")]
+    public ToggleNode BuyOrderArtifacts { get; set; } = new ToggleNode(true);
+
+    [Menu("Buy Broken Circle Artifacts", "Mua artifacts của Broken Circle")]
+    public ToggleNode BuyBrokenCircleArtifacts { get; set; } = new ToggleNode(true);
+
+    public DanningArtifactCostSettings ArtifactCostSettings { get; set; } = new DanningArtifactCostSettings();
+
+    [Menu("Buy Exotic Coinage", "Mua Exotic Coinage (không cần check cost)")]
+    public ToggleNode BuyExoticCoinage { get; set; } = new ToggleNode(true);
+
+    [Menu("Buy Astragali", "Mua Astragali (không cần check cost)")]
+    public ToggleNode BuyAstragali { get; set; } = new ToggleNode(true);
+
+    [Menu("Buy Scrap Metal", "Mua Scrap Metal (không cần check cost)")]
+    public ToggleNode BuyScrapMetal { get; set; } = new ToggleNode(true);
+
+    [Menu("Buy Black Scythe Logbook", "Mua Black Scythe Logbook (không cần check cost)")]
+    public ToggleNode BuyBlackScytheLogbook { get; set; } = new ToggleNode(true);
+
+    [Menu("Buy Knight of the Sun Logbook", "Mua Knight of the Sun Logbook (không cần check cost)")]
+    public ToggleNode BuyKnightOfTheSunLogbook { get; set; } = new ToggleNode(true);
+
+    public List<string> BaseList { get; set; } = new List<string>();
+
+    [JsonIgnore]
+    public CustomNode BaseListNode { get; set; }
+
+    public Danning()
+    {
+        var baseListInput = "";
+        var baseListSelected = "";
+        BaseListNode = new CustomNode
+        {
+            DrawDelegate = () =>
+            {
+                if (ImGui.TreeNode("BaseList"))
+                {
+                    ImGui.InputTextWithHint("##BaseInput", "Keyword", ref baseListInput, 100);
+                    ImGui.SameLine();
+                    if (ImGui.Button("Add to List"))
                     {
                         BaseList.Add(baseListInput);
                         baseListInput = "";
