@@ -68,6 +68,7 @@ public class Ninja
     {
         ("Currency", DownloadType.Currency),
         ("Fragment", DownloadType.Currency),
+        ("Artifact", DownloadType.Exchange),
         ("Oil", DownloadType.Items),
         ("Incubator", DownloadType.Items),
         ("Map", DownloadType.Items),
@@ -91,6 +92,7 @@ public class Ninja
     {
         "Currency",
         "Fragment",
+        "Artifact",
         "Oil",
         "Scarab",
         "Fossil",

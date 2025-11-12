@@ -130,14 +130,29 @@ public static class HaggleHistory
     }
   }
   
-  public static void RecordArtifactUsage(int lesser, int greater, int grand, int exceptional)
+  public static void CalculateArtifactUsage()
   {
-    if (_currentSession != null)
+    if (_currentSession == null)
+      return;
+    
+    _currentSession.LesserUsed = 0;
+    _currentSession.GreaterUsed = 0;
+    _currentSession.GrandUsed = 0;
+    _currentSession.ExceptionalUsed = 0;
+    
+    foreach (var item in _currentSession.Items.Where(x => x.State == HaggleItemState.Bought))
     {
-      _currentSession.LesserUsed += lesser;
-      _currentSession.GreaterUsed += greater;
-      _currentSession.GrandUsed += grand;
-      _currentSession.ExceptionalUsed += exceptional;
+      if (string.IsNullOrEmpty(item.ArtifactType))
+        continue;
+      
+      if (item.ArtifactType.Contains("Lesser"))
+        _currentSession.LesserUsed += item.ArtifactAmount;
+      else if (item.ArtifactType.Contains("Greater"))
+        _currentSession.GreaterUsed += item.ArtifactAmount;
+      else if (item.ArtifactType.Contains("Grand"))
+        _currentSession.GrandUsed += item.ArtifactAmount;
+      else if (item.ArtifactType.Contains("Exceptional"))
+        _currentSession.ExceptionalUsed += item.ArtifactAmount;
     }
   }
   
@@ -193,6 +208,7 @@ public static class HaggleHistory
       return;
     
     _currentSession.EndTime = DateTime.Now;
+    CalculateArtifactUsage();
     SaveSession(_currentSession);
     _sessions.Insert(0, _currentSession);
     _currentSession = null;

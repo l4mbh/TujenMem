@@ -391,11 +391,6 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
         
         HaggleHistory.StartSession();
         _sessionActive = true;
-        var initialCoins = HaggleStock.Coins;
-        var initialLesser = HaggleStock.Lesser;
-        var initialGreater = HaggleStock.Greater;
-        var initialGrand = HaggleStock.Grand;
-        var initialExceptional = HaggleStock.Exceptional;
         
         while (_process.CanRun() || Settings.DebugOnly)
         {
@@ -433,11 +428,6 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             }
         }
 
-        var usedLesser = initialLesser - HaggleStock.Lesser;
-        var usedGreater = initialGreater - HaggleStock.Greater;
-        var usedGrand = initialGrand - HaggleStock.Grand;
-        var usedExceptional = initialExceptional - HaggleStock.Exceptional;
-        HaggleHistory.RecordArtifactUsage(usedLesser, usedGreater, usedGrand, usedExceptional);
         HaggleHistory.EndSession();
         _sessionActive = false;
 
