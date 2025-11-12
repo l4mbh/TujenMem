@@ -214,6 +214,7 @@ public class HaggleProcessWindow
       if (black)
       {
         item.State = HaggleItemState.Rejected;
+        HaggleHistory.RecordItem(item, "Blacklisted");
         continue;
       }
 
@@ -231,6 +232,7 @@ public class HaggleProcessWindow
         if ((!TujenMem.Instance.Settings.MapsEnabled || map.MapTier < TujenMem.Instance.Settings.MinMapTier) && !map.IsUnique && !map.IsInfluenced)
         {
           item.State = HaggleItemState.Rejected;
+          HaggleHistory.RecordItem(item, $"Map filter (tier < {TujenMem.Instance.Settings.MinMapTier})");
           continue;
         }
       }
@@ -472,6 +474,7 @@ public class HaggleProcessWindow
         {
           Log.Debug($"No matching Ninja item found for {item.Name} (may need specific attributes)");
           item.State = HaggleItemState.TooExpensive;
+          HaggleHistory.RecordItem(item, "No matching price data");
           break;
         }
       }
@@ -479,6 +482,7 @@ public class HaggleProcessWindow
       {
         Log.Debug($"No Ninja entry found for {item.Name}, skipping item");
         item.State = HaggleItemState.TooExpensive;
+        HaggleHistory.RecordItem(item, "No price data");
         break;
       }
 
@@ -488,6 +492,7 @@ public class HaggleProcessWindow
       {
         Log.Debug($"Item {item.Name} is in BuyAtAllCost list - buying regardless of price");
         item.State = HaggleItemState.Priced;
+        HaggleHistory.RecordItem(item);
       }
       else
       {
@@ -495,10 +500,13 @@ public class HaggleProcessWindow
         if (itemPrice * TujenMem.Instance.Settings.ArtifactValueSettings.ItemPriceMultiplier.Value >= item.Value)
         {
           item.State = HaggleItemState.TooExpensive;
+          var profitPercent = item.Value > 0 ? ((itemPrice - item.Value) / item.Value) * 100 : 0;
+          HaggleHistory.RecordItem(item, $"Too expensive (price: {itemPrice:F1}c, value: {item.Value:F1}c, {profitPercent:F0}% over)");
         }
         else
         {
           item.State = HaggleItemState.Priced;
+          HaggleHistory.RecordItem(item);
         }
       }
 
@@ -586,6 +594,7 @@ public class HaggleProcessWindow
     }
 
     item.State = HaggleItemState.Bought;
+    HaggleHistory.RecordItem(item);
     Log.Debug($"Finished haggling for item: {item.Name}");
   }
 

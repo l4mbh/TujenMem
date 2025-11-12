@@ -44,4 +44,6 @@ sed -i "s/<Version>$current_version<\/Version>/<Version>$new_version<\/Version>/
 git add TujenMem.csproj
 git commit -m "Release version $new_version"
 git tag "v$new_version"
-git push origin master --tags
+
+echo "Version bumped to $new_version"
+echo "To push to remote, run: git push origin master --tags"

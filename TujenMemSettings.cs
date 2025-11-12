@@ -372,6 +372,13 @@ public class TujenMemSettings : ISettings
     [Menu("Enable Test Mode", "Will only try to read items from the Haggle inventory. Won't haggle, won't refresh window. Use together with 'Show Debug Window' to see what's going on.")]
     public ToggleNode DebugOnly { get; set; } = new ToggleNode(false);
     public ToggleNode ShowDebugWindow { get; set; } = new ToggleNode(false);
+    
+    [Menu("Show Price History Window", "Show downloaded prices from poe.ninja")]
+    public ToggleNode ShowPriceHistoryWindow { get; set; } = new ToggleNode(false);
+    
+    [Menu("Show Haggle History Window", "Show haggle session history with profit tracking")]
+    public ToggleNode ShowHaggleHistoryWindow { get; set; } = new ToggleNode(false);
+    
     public ToggleNode ExpeditionMapHelper { get; set; } = new ToggleNode(true);
 
     public HotKeySettings HotKeySettings { get; set; } = new HotKeySettings();

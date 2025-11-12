@@ -365,6 +365,8 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
     }
 
     private HaggleProcess _process = null;
+    private bool _sessionActive = false;
+    
     private IEnumerator HaggleCoroutine()
     {
         HaggleState = HaggleState.Running;
@@ -387,12 +389,21 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
         _process = new HaggleProcess();
         var isFirstRoll = true;
         
+        HaggleHistory.StartSession();
+        _sessionActive = true;
+        var initialCoins = HaggleStock.Coins;
+        var initialLesser = HaggleStock.Lesser;
+        var initialGreater = HaggleStock.Greater;
+        var initialGrand = HaggleStock.Grand;
+        var initialExceptional = HaggleStock.Exceptional;
+        
         while (_process.CanRun() || Settings.DebugOnly)
         {
             if (!isFirstRoll && HaggleStock.Coins > 0)
             {
                 Log.Debug("Rerolling window for next iteration...");
                 yield return ReRollWindow();
+                HaggleHistory.RecordRoll();
                 yield return new WaitTime(Settings.HoverItemDelay * 3);
             }
             isFirstRoll = false;
@@ -422,6 +433,13 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             }
         }
 
+        var usedLesser = initialLesser - HaggleStock.Lesser;
+        var usedGreater = initialGreater - HaggleStock.Greater;
+        var usedGrand = initialGrand - HaggleStock.Grand;
+        var usedExceptional = initialExceptional - HaggleStock.Exceptional;
+        HaggleHistory.RecordArtifactUsage(usedLesser, usedGreater, usedGrand, usedExceptional);
+        HaggleHistory.EndSession();
+        _sessionActive = false;
 
         if (!Settings.DebugOnly && Settings.EmptyInventoryAfterHaggling)
         {
@@ -527,6 +545,14 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
     public void StopAllRoutines()
     {
         Log.Debug("Stopping all routines");
+        
+        if (_sessionActive)
+        {
+            Log.Debug("Ending active haggle session due to stop");
+            HaggleHistory.EndSession();
+            _sessionActive = false;
+        }
+        
         var routine = Core.ParallelRunner.FindByName(_coroutineName);
         routine?.Done();
         routine = Core.ParallelRunner.FindByName(_empty_inventory_coroutine_name);
@@ -562,6 +588,8 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
     public override void Render()
     {
         Error.Render();
+        PriceHistory.RenderWindow();
+        HaggleHistory.RenderWindow();
 
         if (Settings.ShowDebugWindow && (HaggleState is HaggleState.Running || Settings.DebugOnly))
         {

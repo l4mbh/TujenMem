@@ -127,6 +127,9 @@ public class Ninja
                 _dirty = true;
                 Task.Run(Parse);
             }
+            
+            PriceHistory.RenderButton();
+            HaggleHistory.RenderButton();
 
             try
             {
