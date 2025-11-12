@@ -112,7 +112,7 @@ public static class HaggleHistory
         }
       }
       
-      Log.Warning("Exotic Coinage not found in Ninja.Items! Using fallback price 0.5c. You can set custom price for 'Exotic Coinage' in Custom Prices settings.");
+      Log.Error("Exotic Coinage not found in Ninja.Items! Using fallback price 0.5c. You can set custom price for 'Exotic Coinage' in Custom Prices settings.");
     }
     catch (Exception ex)
     {
