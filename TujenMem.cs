@@ -771,7 +771,10 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
             }
         }
 
-        if (Settings.SillyOrExperimenalFeatures.EnableVoranaWarning && _areaHasVorana)
+        var shouldShowVoranaWarning = Settings.SillyOrExperimenalFeatures.EnableVoranaWarning && 
+                                       (_areaHasVorana || Settings.SillyOrExperimenalFeatures.VoranaWarningTestMode.Value);
+
+        if (shouldShowVoranaWarning)
         {
             if (_areaHasChangedVoranaSoundPlayer == null)
             {
@@ -788,34 +791,88 @@ public class TujenMem : BaseSettingsPlugin<TujenMemSettings>
                     _areaHasVoranaSoundClipJumps++;
             }
 
-
             _areaHasVoranaJumps++;
 
-            var screenWidth = GameController.Window.GetWindowRectangle().Width;
-            var screenHeight = GameController.Window.GetWindowRectangle().Height;
+            var isFollowCursorStyle = Settings.SillyOrExperimenalFeatures.VoranaWarningStyle.Value == "Follow Cursor";
 
-            // measure text and draw in the middle 
-            var txt = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
-            txt += txt;
-            txt += txt;
-            var textSize = Graphics.MeasureText(txt, 20);
-
-            if (_areaHasVoranaJumps % 10 == 0)
+            if (isFollowCursorStyle)
             {
-                _areaHasChangedVoranaColor = _areaHasChangedVoranaColor == Color.Red ? Color.Yellow : Color.Red;
+                var cursorPos = Input.MousePosition;
+                var txt = "BOSS";
+                var fontSize = Settings.SillyOrExperimenalFeatures.VoranaWarningFontSize.Value;
+                var radius = Settings.SillyOrExperimenalFeatures.VoranaWarningCircleRadius.Value;
+                var textCount = Settings.SillyOrExperimenalFeatures.VoranaWarningTextCount.Value;
+                var color1 = Settings.SillyOrExperimenalFeatures.VoranaWarningColor1.Value;
+                var color2 = Settings.SillyOrExperimenalFeatures.VoranaWarningColor2.Value;
+
+                if (_areaHasVoranaJumps == 1)
+                {
+                    _areaHasChangedVoranaColor = color1;
+                }
+
+                if (_areaHasVoranaJumps % 15 == 0)
+                {
+                    var isSameAsColor1 = _areaHasChangedVoranaColor.R == color1.R && 
+                                        _areaHasChangedVoranaColor.G == color1.G && 
+                                        _areaHasChangedVoranaColor.B == color1.B;
+                    _areaHasChangedVoranaColor = isSameAsColor1 ? color2 : color1;
+                }
+
+                var shouldDisplay = (_areaHasVoranaJumps % 30) < 20;
+                
+                if (shouldDisplay)
+                {
+                    var angleStep = 360.0f / textCount;
+                    
+                    for (int i = 0; i < textCount; i++)
+                    {
+                        var angle = (angleStep * i + _areaHasVoranaJumps * 2) * (Math.PI / 180.0);
+                        var x = cursorPos.X + (float)(Math.Cos(angle) * radius);
+                        var y = cursorPos.Y + (float)(Math.Sin(angle) * radius);
+                        
+                        Graphics.DrawText(txt, new Vector2(x, y), _areaHasChangedVoranaColor, fontSize);
+                    }
+                }
+
+                if (_areaHasVoranaJumps > 300 && !Settings.SillyOrExperimenalFeatures.VoranaWarningTestMode.Value)
+                {
+                    _areaHasVorana = false;
+                    _areaHasVoranaJumps = 0;
+                }
             }
-
-
-            var drawNum = (screenHeight - (int)(screenHeight * 0.2)) / textSize.Y;
-            for (int i = 0; i < drawNum; i++)
+            else
             {
-                var y = screenHeight / drawNum * i;
-                Graphics.DrawText(txt, new Vector2(screenWidth / 2 - textSize.X / 2, y), _areaHasChangedVoranaColor, 20);
+                var screenWidth = GameController.Window.GetWindowRectangle().Width;
+                var screenHeight = GameController.Window.GetWindowRectangle().Height;
+
+                var txt = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS BOSS  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+                txt += txt;
+                txt += txt;
+                var textSize = Graphics.MeasureText(txt, 20);
+
+                if (_areaHasVoranaJumps % 10 == 0)
+                {
+                    _areaHasChangedVoranaColor = _areaHasChangedVoranaColor == Color.Red ? Color.Yellow : Color.Red;
+                }
+
+                var drawNum = (screenHeight - (int)(screenHeight * 0.2)) / textSize.Y;
+                for (int i = 0; i < drawNum; i++)
+                {
+                    var y = screenHeight / drawNum * i;
+                    Graphics.DrawText(txt, new Vector2(screenWidth / 2 - textSize.X / 2, y), _areaHasChangedVoranaColor, 20);
+                }
+
+                if (_areaHasVoranaJumps > 100 && !Settings.SillyOrExperimenalFeatures.VoranaWarningTestMode.Value)
+                {
+                    _areaHasVorana = false;
+                    _areaHasVoranaJumps = 0;
+                }
             }
-
-            if (_areaHasVoranaJumps > 100)
+        }
+        else
+        {
+            if (_areaHasVoranaJumps > 0)
             {
-                _areaHasVorana = false;
                 _areaHasVoranaJumps = 0;
             }
         }

@@ -6,6 +6,7 @@ using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
 using ImGuiNET;
 using Newtonsoft.Json;
+using SharpDX;
 
 namespace TujenMem;
 
@@ -654,10 +655,33 @@ public class SillyOrExperimenalFeatures
     [Menu("Enable Statistics", "Output at: Plugins/(Temp or Compiled)/Data/Statistics.csv")]
     public ToggleNode EnableStatistics { get; set; } = new ToggleNode(false);
 
-    [Menu("Enable Vorana Warning", "THIS IS REALLY SILLY. DO NOT ENABLE THIS UNLESS YOU WANT TO BE ANNOYED.")]
+    [Menu("Enable Vorana Warning", "Cảnh báo khi gặp boss Vorana")]
     public ToggleNode EnableVoranaWarning { get; set; } = new ToggleNode(false);
-    [Menu("Enable Vorana Warning Sound", "THIS IS REALLY SILLY. DO NOT ENABLE THIS UNLESS YOU WANT TO BE ANNOYED.")]
+    [Menu("Enable Vorana Warning Sound", "Bật âm thanh cảnh báo Vorana")]
     public ToggleNode EnableVoranaWarningSound { get; set; } = new ToggleNode(false);
+    [Menu("Test Mode", "Bật để test hiệu ứng cảnh báo (không cần boss Vorana)")]
+    public ToggleNode VoranaWarningTestMode { get; set; } = new ToggleNode(false);
+    [Menu("Vorana Warning Style", "Kiểu hiển thị: Follow Cursor = chữ BOSS dính theo chuột | Full Screen = text đầy màn hình (kiểu cũ)")]
+    public ListNode VoranaWarningStyle { get; set; } = new ListNode
+    {
+        Values = new List<string> { "Follow Cursor", "Full Screen" },
+        Value = "Follow Cursor"
+    };
+    
+    [Menu("Circle Radius", "Bán kính vòng tròn text BOSS (Follow Cursor mode)")]
+    public RangeNode<int> VoranaWarningCircleRadius { get; set; } = new RangeNode<int>(80, 30, 200);
+    
+    [Menu("Text Count", "Số lượng chữ BOSS trên vòng tròn")]
+    public RangeNode<int> VoranaWarningTextCount { get; set; } = new RangeNode<int>(8, 4, 16);
+    
+    [Menu("Font Size", "Kích thước chữ BOSS")]
+    public RangeNode<int> VoranaWarningFontSize { get; set; } = new RangeNode<int>(20, 10, 40);
+    
+    [Menu("Color 1", "Màu đầu tiên của hiệu ứng nhấp nháy")]
+    public ColorNode VoranaWarningColor1 { get; set; } = new ColorNode(Color.Red);
+    
+    [Menu("Color 2", "Màu thứ hai của hiệu ứng nhấp nháy")]
+    public ColorNode VoranaWarningColor2 { get; set; } = new ColorNode(Color.Yellow);
 }
 
 

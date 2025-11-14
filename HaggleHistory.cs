@@ -19,7 +19,6 @@ public class HaggleSessionItem
   public int Amount { get; set; }
   public HaggleItemState State { get; set; }
   public string Details { get; set; }
-  public string RejectReason { get; set; }
 }
 
 public class HaggleSession
@@ -35,13 +34,11 @@ public class HaggleSession
   public int ExceptionalUsed { get; set; }
   public List<HaggleSessionItem> Items { get; set; } = new();
   
-  public float TotalChaosValue => Items.Where(x => x.State == HaggleItemState.Bought).Sum(x => x.ChaosValue * x.Amount);
-  public float TotalCostInChaos => Items.Where(x => x.State == HaggleItemState.Bought).Sum(x => x.ArtifactCost);
+  public float TotalChaosValue => Items.Sum(x => x.ChaosValue * x.Amount);
+  public float TotalCostInChaos => Items.Sum(x => x.ArtifactCost);
   public float RerollCostInChaos => TotalRolls * CoinageValueAtTime;
   public float TotalCostWithRerolls => TotalCostInChaos + RerollCostInChaos;
-  public int ItemsBought => Items.Count(x => x.State == HaggleItemState.Bought);
-  public int ItemsRejected => Items.Count(x => x.State == HaggleItemState.Rejected);
-  public int ItemsTooExpensive => Items.Count(x => x.State == HaggleItemState.TooExpensive);
+  public int ItemsBought => Items.Count;
   public float ProfitInChaos => TotalChaosValue - TotalCostWithRerolls;
   public float ProfitPercent => TotalCostWithRerolls > 0 ? (ProfitInChaos / TotalCostWithRerolls) * 100 : 0;
 }
@@ -156,50 +153,40 @@ public static class HaggleHistory
     }
   }
   
+  // Chỉ record items khi BOUGHT (thực sự mua)
   public static void RecordItem(HaggleItem item, string rejectReason = "")
   {
     if (_currentSession == null)
       return;
     
-    var existingItem = _currentSession.Items.FirstOrDefault(x => x.ItemAddress == item.Address);
+    // Chỉ ghi nhận khi item đã bought
+    if (item.State != HaggleItemState.Bought)
+      return;
+    
+    // Kiểm tra đã record chưa (tránh duplicate)
+    var existingItem = _currentSession.Items.FirstOrDefault(x => 
+      x.ItemAddress == item.Address && 
+      x.State == HaggleItemState.Bought
+    );
     
     if (existingItem != null)
+      return;
+    
+    var sessionItem = new HaggleSessionItem
     {
-      if (existingItem.State == HaggleItemState.Rejected)
-      {
-        return;
-      }
-      
-      existingItem.State = item.State;
-      existingItem.ChaosValue = item.Amount > 0 ? item.Value / item.Amount : item.Value;
-      existingItem.ArtifactCost = item.Price?.TotalValue() ?? 0;
-      existingItem.ArtifactType = item.Price?.Name ?? "";
-      existingItem.ArtifactAmount = item.Price?.Value ?? 0;
-      
-      if (!string.IsNullOrEmpty(rejectReason))
-      {
-        existingItem.RejectReason = rejectReason;
-      }
-    }
-    else
-    {
-      var sessionItem = new HaggleSessionItem
-      {
-        ItemAddress = item.Address,
-        ItemName = item.Name,
-        ItemType = item.Type,
-        ChaosValue = item.Amount > 0 ? item.Value / item.Amount : item.Value,
-        ArtifactCost = item.Price?.TotalValue() ?? 0,
-        ArtifactType = item.Price?.Name ?? "",
-        ArtifactAmount = item.Price?.Value ?? 0,
-        Amount = item.Amount,
-        State = item.State,
-        Details = GetItemDetails(item),
-        RejectReason = rejectReason
-      };
-      
-      _currentSession.Items.Add(sessionItem);
-    }
+      ItemAddress = item.Address,
+      ItemName = item.Name,
+      ItemType = item.Type,
+      ChaosValue = item.Amount > 0 ? item.Value / item.Amount : item.Value,
+      ArtifactCost = item.Price?.TotalValue() ?? 0,
+      ArtifactType = item.Price?.Name ?? "",
+      ArtifactAmount = item.Price?.Value ?? 0,
+      Amount = item.Amount,
+      State = item.State,
+      Details = GetItemDetails(item)
+    };
+    
+    _currentSession.Items.Add(sessionItem);
   }
   
   public static void EndSession()
@@ -235,14 +222,14 @@ public static class HaggleHistory
       
       using (var sw = new StreamWriter(DataFileName, true))
       {
-        sw.WriteLine($"{sessionId};{session.StartTime:yyyy-MM-dd HH:mm:ss};{session.EndTime:yyyy-MM-dd HH:mm:ss};{session.TotalRolls};{session.CoinsSpent};{session.CoinageValueAtTime.ToString(CultureInfo.InvariantCulture)};{session.RerollCostInChaos.ToString(CultureInfo.InvariantCulture)};{session.LesserUsed};{session.GreaterUsed};{session.GrandUsed};{session.ExceptionalUsed};{session.ItemsBought};{session.ItemsRejected};{session.ItemsTooExpensive};{session.TotalChaosValue.ToString(CultureInfo.InvariantCulture)};{session.TotalCostInChaos.ToString(CultureInfo.InvariantCulture)};{session.TotalCostWithRerolls.ToString(CultureInfo.InvariantCulture)};{session.ProfitInChaos.ToString(CultureInfo.InvariantCulture)};{session.ProfitPercent.ToString(CultureInfo.InvariantCulture)}");
+        sw.WriteLine($"{sessionId};{session.StartTime:yyyy-MM-dd HH:mm:ss};{session.EndTime:yyyy-MM-dd HH:mm:ss};{session.TotalRolls};{session.CoinsSpent};{session.CoinageValueAtTime.ToString(CultureInfo.InvariantCulture)};{session.RerollCostInChaos.ToString(CultureInfo.InvariantCulture)};{session.LesserUsed};{session.GreaterUsed};{session.GrandUsed};{session.ExceptionalUsed};{session.ItemsBought};0;0;{session.TotalChaosValue.ToString(CultureInfo.InvariantCulture)};{session.TotalCostInChaos.ToString(CultureInfo.InvariantCulture)};{session.TotalCostWithRerolls.ToString(CultureInfo.InvariantCulture)};{session.ProfitInChaos.ToString(CultureInfo.InvariantCulture)};{session.ProfitPercent.ToString(CultureInfo.InvariantCulture)}");
       }
       
       if (!File.Exists(ItemsFileName))
       {
         using (var sw = new StreamWriter(ItemsFileName, false))
         {
-          sw.WriteLine("SessionId;ItemName;ItemType;Details;ChaosValue;ArtifactCost;ArtifactType;ArtifactAmount;Amount;State;RejectReason");
+          sw.WriteLine("SessionId;ItemName;ItemType;Details;ChaosValue;ArtifactCost;ArtifactType;ArtifactAmount;Amount;State");
         }
       }
       
@@ -250,7 +237,7 @@ public static class HaggleHistory
       {
         foreach (var item in session.Items)
         {
-          sw.WriteLine($"{sessionId};{item.ItemName};{item.ItemType};{item.Details};{item.ChaosValue.ToString(CultureInfo.InvariantCulture)};{item.ArtifactCost.ToString(CultureInfo.InvariantCulture)};{item.ArtifactType};{item.ArtifactAmount};{item.Amount};{item.State};{item.RejectReason}");
+          sw.WriteLine($"{sessionId};{item.ItemName};{item.ItemType};{item.Details};{item.ChaosValue.ToString(CultureInfo.InvariantCulture)};{item.ArtifactCost.ToString(CultureInfo.InvariantCulture)};{item.ArtifactType};{item.ArtifactAmount};{item.Amount};{item.State}");
         }
       }
     }
@@ -321,8 +308,7 @@ public static class HaggleHistory
             ArtifactType = parts[6],
             ArtifactAmount = parts.Length > 7 ? int.Parse(parts[7]) : 0,
             Amount = parts.Length > 8 ? int.Parse(parts[8]) : int.Parse(parts[7]),
-            State = parts.Length > 9 ? Enum.Parse<HaggleItemState>(parts[9]) : Enum.Parse<HaggleItemState>(parts[8]),
-            RejectReason = parts.Length > 10 ? parts[10] : (parts.Length > 9 ? parts[9] : "")
+            State = parts.Length > 9 ? Enum.Parse<HaggleItemState>(parts[9]) : Enum.Parse<HaggleItemState>(parts[8])
           };
           
           sessionDict[sessionId].Items.Add(item);
@@ -505,8 +491,8 @@ public static class HaggleHistory
     ImGui.Text($"  Exceptional: {session.ExceptionalUsed}");
     
     ImGui.Separator();
-    ImGui.Text($"Items Bought: {session.ItemsBought} | Rejected: {session.ItemsRejected} | Too Expensive: {session.ItemsTooExpensive}");
-    ImGui.TextColored(new System.Numerics.Vector4(1.0f, 0.84f, 0.0f, 1.0f), $"Total Value (Bought): {session.TotalChaosValue:F2}c");
+    ImGui.Text($"Items Bought: {session.ItemsBought}");
+    ImGui.TextColored(new System.Numerics.Vector4(1.0f, 0.84f, 0.0f, 1.0f), $"Total Value: {session.TotalChaosValue:F2}c");
     ImGui.SameLine();
     ImGui.TextColored(new System.Numerics.Vector4(0.5f, 1.0f, 0.5f, 1.0f), $"| Artifacts Cost: {session.TotalCostInChaos:F2}c");
     ImGui.TextColored(new System.Numerics.Vector4(0.8f, 0.8f, 1.0f, 1.0f), $"Total Cost (Artifacts + Rerolls): {session.TotalCostWithRerolls:F2}c");
@@ -516,7 +502,7 @@ public static class HaggleHistory
     ImGui.TextColored(profitColor, $"Net Profit: {session.ProfitInChaos:F2}c ({session.ProfitPercent:F1}%)");
     
     ImGui.Separator();
-    ImGui.TextColored(new System.Numerics.Vector4(1.0f, 1.0f, 1.0f, 1.0f), "Items:");
+    ImGui.TextColored(new System.Numerics.Vector4(1.0f, 1.0f, 1.0f, 1.0f), "Items Bought:");
     
     ImGui.SetNextItemWidth(300);
     ImGui.InputText("##ItemSearch", ref _itemSearchFilter, 256);
@@ -526,39 +512,7 @@ public static class HaggleHistory
       _itemSearchFilter = "";
     }
     
-    if (ImGui.BeginTabBar("ItemsTabs"))
-    {
-      var boughtItems = session.Items.Where(x => x.State == HaggleItemState.Bought).ToList();
-      var boughtTotalValue = boughtItems.Sum(x => x.ChaosValue * x.Amount);
-      var boughtTotalCost = boughtItems.Sum(x => x.ArtifactCost);
-      
-      if (ImGui.BeginTabItem($"Bought ({boughtItems.Count})"))
-      {
-        ImGui.TextColored(new System.Numerics.Vector4(0.5f, 1.0f, 0.5f, 1.0f), $"Total Value: {boughtTotalValue:F2}c | Total Cost: {boughtTotalCost:F2}c | Profit: {(boughtTotalValue - boughtTotalCost):F2}c");
-        RenderBoughtItemsTable(boughtItems);
-        ImGui.EndTabItem();
-      }
-      
-      if (ImGui.BeginTabItem($"Rejected ({session.ItemsRejected})"))
-      {
-        RenderItemsTable(session.Items.Where(x => x.State == HaggleItemState.Rejected).ToList());
-        ImGui.EndTabItem();
-      }
-      
-      if (ImGui.BeginTabItem($"Too Expensive ({session.ItemsTooExpensive})"))
-      {
-        RenderItemsTable(session.Items.Where(x => x.State == HaggleItemState.TooExpensive).ToList());
-        ImGui.EndTabItem();
-      }
-      
-      if (ImGui.BeginTabItem($"All ({session.Items.Count})"))
-      {
-        RenderItemsTable(session.Items);
-        ImGui.EndTabItem();
-      }
-      
-      ImGui.EndTabBar();
-    }
+    RenderBoughtItemsTable(session.Items);
   }
   
   private static void RenderBoughtItemsTable(List<HaggleSessionItem> items)
@@ -658,105 +612,6 @@ public static class HaggleHistory
       return "Exceptional";
     
     return artifactType;
-  }
-  
-  private static void RenderItemsTable(List<HaggleSessionItem> items)
-  {
-    if (items.Count == 0)
-    {
-      ImGui.TextColored(new System.Numerics.Vector4(0.7f, 0.7f, 0.7f, 1.0f), "No items");
-      return;
-    }
-    
-    var filteredItems = items;
-    if (!string.IsNullOrWhiteSpace(_itemSearchFilter))
-    {
-      var searchLower = _itemSearchFilter.ToLower();
-      filteredItems = items.Where(x => 
-        x.ItemName.ToLower().Contains(searchLower) ||
-        x.ItemType.ToLower().Contains(searchLower) ||
-        (x.Details != null && x.Details.ToLower().Contains(searchLower))
-      ).ToList();
-    }
-    
-    if (ImGui.BeginTable("ItemsDetailsTable", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY))
-    {
-      ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-      ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 100);
-      ImGui.TableSetupColumn("Details", ImGuiTableColumnFlags.WidthStretch);
-      ImGui.TableSetupColumn("Stack", ImGuiTableColumnFlags.WidthFixed, 50);
-      ImGui.TableSetupColumn("Value", ImGuiTableColumnFlags.WidthFixed, 80);
-      ImGui.TableSetupColumn("Cost", ImGuiTableColumnFlags.WidthFixed, 70);
-      ImGui.TableSetupColumn("Reason", ImGuiTableColumnFlags.WidthStretch);
-      ImGui.TableSetupScrollFreeze(0, 1);
-      ImGui.TableHeadersRow();
-      
-      foreach (var item in filteredItems)
-      {
-        ImGui.TableNextRow();
-        
-        ImGui.TableNextColumn();
-        ImGui.Text(item.ItemName);
-        
-        ImGui.TableNextColumn();
-        ImGui.Text(item.ItemType);
-        
-        ImGui.TableNextColumn();
-        if (!string.IsNullOrEmpty(item.Details))
-        {
-          ImGui.TextWrapped(item.Details);
-        }
-        else
-        {
-          ImGui.Text("-");
-        }
-        
-        ImGui.TableNextColumn();
-        if (item.Amount > 1)
-        {
-          ImGui.TextColored(
-            new System.Numerics.Vector4(0.5f, 0.8f, 1.0f, 1.0f),
-            $"x{item.Amount}"
-          );
-        }
-        else
-        {
-          ImGui.Text("-");
-        }
-        
-        ImGui.TableNextColumn();
-        var totalValue = item.ChaosValue * item.Amount;
-        ImGui.TextColored(
-          new System.Numerics.Vector4(1.0f, 0.84f, 0.0f, 1.0f),
-          $"{totalValue:F1}c"
-        );
-        
-        ImGui.TableNextColumn();
-        if (item.State == HaggleItemState.Bought)
-        {
-          ImGui.TextColored(
-            new System.Numerics.Vector4(0.5f, 1.0f, 0.5f, 1.0f),
-            $"{item.ArtifactCost:F1}c"
-          );
-        }
-        else
-        {
-          ImGui.Text("-");
-        }
-        
-        ImGui.TableNextColumn();
-        if (!string.IsNullOrEmpty(item.RejectReason))
-        {
-          ImGui.TextWrapped(item.RejectReason);
-        }
-        else
-        {
-          ImGui.Text("-");
-        }
-      }
-      
-      ImGui.EndTable();
-    }
   }
   
   private static void ClearHistory()

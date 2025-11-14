@@ -33,6 +33,9 @@ public class Ninja
     private static bool _dirty = true;
     private static Dictionary<string, float> fileProgress = new Dictionary<string, float>();
     private static Dictionary<string, DownloadIntegrity> fileIntegrity = new Dictionary<string, DownloadIntegrity>();
+    private static Dictionary<string, string> fileStatus = new Dictionary<string, string>();
+    private static string _currentDownloadStatus = "";
+    private static bool _isDownloading = false;
 
     private static string DataFolder
     {
@@ -113,14 +116,34 @@ public class Ninja
         {
             ValidityIndicator();
 
+            var isDownloadDisabled = _isDownloading;
+            if (isDownloadDisabled)
+            {
+                ImGui.BeginDisabled();
+            }
+            
             if (ImGui.Button("Download Data"))
             {
-                Task.Run(DownloadFilesAsync).ContinueWith((t) => { _dirty = true; CheckIntegrity(); }).ContinueWith(async (t) => { await Parse(); });
+                _isDownloading = true;
+                _currentDownloadStatus = "Đang tải dữ liệu Overview...";
+                Task.Run(DownloadFilesAsync).ContinueWith((t) => { 
+                    _dirty = true; 
+                    CheckIntegrity(); 
+                    _isDownloading = false;
+                    _currentDownloadStatus = "";
+                }).ContinueWith(async (t) => { await Parse(); });
             }
             ImGui.SameLine();
             if (ImGui.Button("Download Exchange Data"))
             {
-                Task.Run(DownloadExchangeFilesAsync).ContinueWith((t) => { _dirty = true; CheckIntegrity(); }).ContinueWith(async (t) => { await Parse(); });
+                _isDownloading = true;
+                _currentDownloadStatus = "Đang tải dữ liệu Exchange...";
+                Task.Run(DownloadExchangeFilesAsync).ContinueWith((t) => { 
+                    _dirty = true; 
+                    CheckIntegrity(); 
+                    _isDownloading = false;
+                    _currentDownloadStatus = "";
+                }).ContinueWith(async (t) => { await Parse(); });
             }
             ImGui.SameLine();
             if (ImGui.Button("Re-Check Integrity"))
@@ -128,6 +151,21 @@ public class Ninja
                 CheckIntegrity();
                 _dirty = true;
                 Task.Run(Parse);
+            }
+            
+            if (isDownloadDisabled)
+            {
+                ImGui.EndDisabled();
+            }
+            
+            if (_isDownloading && !string.IsNullOrEmpty(_currentDownloadStatus))
+            {
+                ImGui.TextColored(new System.Numerics.Vector4(1, 1, 0, 1), _currentDownloadStatus);
+            }
+            
+            if (ImGui.Button("Test URLs (Debug)"))
+            {
+                Task.Run(TestURLs);
             }
             
             PriceHistory.RenderButton();
@@ -151,17 +189,16 @@ public class Ninja
                 ImGui.TextColored(new System.Numerics.Vector4(1, 1, 0, 1), itemText);
             }
 
-            if (ImGui.BeginTable("File Table", 5))
+            if (ImGui.BeginTable("File Table", 6))
             {
-                // Table headers
                 ImGui.TableSetupColumn("File Name");
                 ImGui.TableSetupColumn("Exists");
                 ImGui.TableSetupColumn("Integrity");
                 ImGui.TableSetupColumn("Age");
-                ImGui.TableSetupColumn("DownloadProgress");
+                ImGui.TableSetupColumn("Status");
+                ImGui.TableSetupColumn("Progress");
                 ImGui.TableHeadersRow();
 
-                // Table rows
                 foreach (var file in DownloadList)
                 {
                     var filePath = GetFilePathForName(file.Item1);
@@ -234,13 +271,21 @@ public class Ninja
                         ImGui.Text("-");
                     }
 
+                    ImGui.TableNextColumn();
+                    if (fileStatus.ContainsKey(filePath) && !string.IsNullOrEmpty(fileStatus[filePath]))
+                    {
+                        ImGui.TextColored(new System.Numerics.Vector4(0.5f, 0.5f, 1, 1), fileStatus[filePath]);
+                    }
+                    else
+                    {
+                        ImGui.Text("-");
+                    }
 
                     ImGui.TableNextColumn();
                     var progress = fileProgress.ContainsKey(filePath) ? fileProgress[filePath] : 0;
                     ImGui.ProgressBar(progress);
                 }
 
-                // End table
                 ImGui.EndTable();
             }
 
@@ -462,6 +507,7 @@ public class Ninja
 
     private static async Task DownloadFileAsync(string url, string filePath)
     {
+        var fileName = Path.GetFileName(filePath);
         var handler = new HttpClientHandler
         {
             AllowAutoRedirect = true,
@@ -472,7 +518,6 @@ public class Ninja
         {
             client.Timeout = TimeSpan.FromMinutes(5);
             
-            // Thêm headers để giả lập browser request
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             client.DefaultRequestHeaders.Add("Accept", "application/json, text/plain, */*");
             client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.9");
@@ -480,32 +525,80 @@ public class Ninja
             
             try
             {
-                Log.Debug($"Downloading from: {url}");
-                var response = await client.GetAsync(url);
+                Log.Debug($"[{fileName}] Bắt đầu tải từ: {url}");
+                fileStatus[filePath] = "Connecting...";
+                fileProgress[filePath] = 0.1f;
+                
+                var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
                 
-                var content = await response.Content.ReadAsStringAsync();
-                Log.Debug($"Downloaded {content.Length} characters");
+                Log.Debug($"[{fileName}] Nhận được response, status: {response.StatusCode}");
+                fileStatus[filePath] = "Downloading...";
+                fileProgress[filePath] = 0.3f;
                 
-                // Debug: Log một phần response để xem cấu trúc
-                if (content.Length > 0 && content.Length < 500)
+                var content = await response.Content.ReadAsStringAsync();
+                Log.Debug($"[{fileName}] Tải xong {content.Length} ký tự");
+                fileStatus[filePath] = "Saving...";
+                fileProgress[filePath] = 0.6f;
+                
+                if (content.Length == 0)
                 {
-                    Log.Debug($"Response preview: {content}");
+                    throw new Exception($"Response rỗng từ {url}");
                 }
-                else if (content.Length >= 500)
+                
+                if (content.Length < 500)
                 {
-                    Log.Debug($"Response preview (first 500 chars): {content.Substring(0, 500)}...");
+                    Log.Debug($"[{fileName}] Nội dung: {content}");
+                }
+                else
+                {
+                    Log.Debug($"[{fileName}] Preview (500 ký tự đầu): {content.Substring(0, 500)}...");
                 }
                 
                 await File.WriteAllTextAsync(filePath, content);
-                fileProgress[filePath] = 1.0f;
+                fileStatus[filePath] = "Validating...";
+                fileProgress[filePath] = 0.9f;
                 
-                Log.Debug($"Saved to: {filePath}");
+                try
+                {
+                    JToken.Parse(content);
+                    Log.Debug($"[{fileName}] ✓ JSON hợp lệ, đã lưu vào: {filePath}");
+                    fileStatus[filePath] = "✓ Done";
+                    fileProgress[filePath] = 1.0f;
+                    fileIntegrity[filePath] = DownloadIntegrity.Valid;
+                }
+                catch (Exception jsonEx)
+                {
+                    Log.Error($"[{fileName}] ✗ JSON không hợp lệ: {jsonEx.Message}");
+                    fileStatus[filePath] = "✗ Invalid JSON";
+                    fileProgress[filePath] = 0.9f;
+                    fileIntegrity[filePath] = DownloadIntegrity.Invalid;
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                Log.Error($"[{fileName}] ✗ Lỗi HTTP: {httpEx.Message}");
+                Log.Error($"[{fileName}] URL: {url}");
+                fileStatus[filePath] = $"✗ HTTP Error";
+                fileProgress[filePath] = 0f;
+                fileIntegrity[filePath] = DownloadIntegrity.Invalid;
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                Log.Error($"[{fileName}] ✗ Timeout khi tải từ: {url}");
+                fileStatus[filePath] = "✗ Timeout";
+                fileProgress[filePath] = 0f;
+                fileIntegrity[filePath] = DownloadIntegrity.Invalid;
+                throw;
             }
             catch (Exception ex)
             {
-                Log.Error($"Error downloading {url}: {ex.Message}");
+                Log.Error($"[{fileName}] ✗ Lỗi: {ex.Message}");
+                Log.Error($"[{fileName}] Stack trace: {ex.StackTrace}");
+                fileStatus[filePath] = "✗ Error";
                 fileProgress[filePath] = 0f;
+                fileIntegrity[filePath] = DownloadIntegrity.Invalid;
                 throw;
             }
         }
@@ -517,19 +610,60 @@ public class Ninja
         {
             Directory.CreateDirectory(DataFolder);
         }
-        List<Task> tasks = new List<Task>();
+        
+        Log.Debug($"========================================");
+        Log.Debug($"Bắt đầu tải {DownloadList.Count} files từ poe.ninja");
+        Log.Debug($"League: {TujenMem.Instance?.Settings?.League?.Value ?? "Unknown"}");
+        Log.Debug($"========================================");
+        
+        var tasks = new List<Task>();
+        var failedDownloads = new List<string>();
+        
         foreach (var dl in DownloadList)
         {
             var filePath = GetFilePathForName(dl.Item1);
             var url = GetUrlForDownloadFile(dl);
             fileProgress[filePath] = 0;
-            tasks.Add(DownloadFileAsync(url, filePath));
+            
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await DownloadFileAsync(url, filePath);
+                }
+                catch (Exception ex)
+                {
+                    lock (failedDownloads)
+                    {
+                        failedDownloads.Add($"{dl.Item1}: {ex.Message}");
+                    }
+                }
+            }));
         }
+        
         await Task.WhenAll(tasks);
+        
+        Log.Debug($"========================================");
+        Log.Debug($"Hoàn tất tải dữ liệu");
+        
+        var successCount = DownloadList.Count - failedDownloads.Count;
+        Log.Debug($"Thành công: {successCount}/{DownloadList.Count}");
+        
+        if (failedDownloads.Count > 0)
+        {
+            Log.Error($"Thất bại: {failedDownloads.Count} files:");
+            foreach (var failed in failedDownloads)
+            {
+                Log.Error($"  - {failed}");
+            }
+        }
+        else
+        {
+            Log.Debug($"✓ Tất cả files đã tải thành công!");
+        }
+        Log.Debug($"========================================");
     }
 
-    // Tải giá từ Exchange API cho các loại trong ExchangeTypes
-    // Exchange API cung cấp dữ liệu real-time và chính xác hơn cho currency exchanges
     private static async Task DownloadExchangeFilesAsync()
     {
         if (!Directory.Exists(DataFolder))
@@ -538,20 +672,59 @@ public class Ninja
         }
         
         var league = TujenMem.Instance?.Settings?.League?.Value ?? "Ancestor";
-        Log.Debug($"Downloading Exchange data for league: {league}");
         
-        List<Task> tasks = new List<Task>();
+        Log.Debug($"========================================");
+        Log.Debug($"Bắt đầu tải {ExchangeTypes.Count} Exchange files từ poe.ninja");
+        Log.Debug($"League: {league}");
+        Log.Debug($"========================================");
+        
+        var tasks = new List<Task>();
+        var failedDownloads = new List<string>();
+        
         foreach (var type in ExchangeTypes)
         {
             var filePath = GetFilePathForName(type);
             var url = GetExchangeUrl(type);
-            Log.Debug($"Downloading Exchange data: {type} from {url}");
             fileProgress[filePath] = 0;
-            tasks.Add(DownloadFileAsync(url, filePath));
+            
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await DownloadFileAsync(url, filePath);
+                }
+                catch (Exception ex)
+                {
+                    lock (failedDownloads)
+                    {
+                        failedDownloads.Add($"{type}: {ex.Message}");
+                    }
+                }
+            }));
         }
+        
         await Task.WhenAll(tasks);
         
-        // Kiểm tra xem có data không
+        Log.Debug($"========================================");
+        Log.Debug($"Hoàn tất tải Exchange data");
+        
+        var successCount = ExchangeTypes.Count - failedDownloads.Count;
+        Log.Debug($"Thành công: {successCount}/{ExchangeTypes.Count}");
+        
+        if (failedDownloads.Count > 0)
+        {
+            Log.Error($"Thất bại: {failedDownloads.Count} files:");
+            foreach (var failed in failedDownloads)
+            {
+                Log.Error($"  - {failed}");
+            }
+        }
+        else
+        {
+            Log.Debug($"✓ Tất cả Exchange files đã tải thành công!");
+        }
+        Log.Debug($"========================================");
+        
         await ValidateExchangeData();
     }
     
@@ -609,12 +782,15 @@ public class Ninja
     private static string GetUrlForDownloadFile((string, DownloadType) dl)
     {
         var league = TujenMem.Instance?.Settings?.League?.Value ?? "Ancestor";
+        
         switch (dl.Item2)
         {
             case DownloadType.Currency:
-                return "https://poe.ninja/api/data/CurrencyOverview?league=" + league + "&type=" + dl.Item1 + "&language=en";
+                return $"https://poe.ninja/api/data/CurrencyOverview?league={league}&type={dl.Item1}&language=en";
             case DownloadType.Items:
-                return "https://poe.ninja/api/data/ItemOverview?league=" + league + "&type=" + dl.Item1 + "&language=en";
+                return $"https://poe.ninja/api/data/ItemOverview?league={league}&type={dl.Item1}&language=en";
+            case DownloadType.Exchange:
+                return GetExchangeUrl(dl.Item1);
             default:
                 throw new Exception("Unknown DownloadType");
         }
@@ -624,6 +800,113 @@ public class Ninja
     {
         var league = TujenMem.Instance?.Settings?.League?.Value ?? "Ancestor";
         return $"https://poe.ninja/poe1/api/economy/exchange/current/overview?league={league}&type={type}";
+    }
+
+    private static async Task TestURLs()
+    {
+        var league = TujenMem.Instance?.Settings?.League?.Value ?? "Unknown";
+        
+        Log.Debug($"========================================");
+        Log.Debug($"BẮT ĐẦU TEST URLs");
+        Log.Debug($"League: {league}");
+        Log.Debug($"========================================");
+        
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 10
+        };
+        
+        using (var client = new HttpClient(handler))
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            client.DefaultRequestHeaders.Add("Accept", "application/json, text/plain, */*");
+            
+            foreach (var dl in DownloadList.Take(5))
+            {
+                var url = GetUrlForDownloadFile(dl);
+                
+                try
+                {
+                    Log.Debug($"");
+                    Log.Debug($"Testing: {dl.Item1} ({dl.Item2})");
+                    Log.Debug($"URL: {url}");
+                    
+                    var response = await client.GetAsync(url);
+                    var statusCode = (int)response.StatusCode;
+                    
+                    Log.Debug($"  Status: {statusCode} {response.StatusCode}");
+                    
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var content = await response.Content.ReadAsStringAsync();
+                        Log.Debug($"  Content Length: {content.Length} chars");
+                        
+                        if (content.Length > 0)
+                        {
+                            if (content.StartsWith("{") || content.StartsWith("["))
+                            {
+                                Log.Debug($"  ✓ Có vẻ là JSON");
+                                
+                                try
+                                {
+                                    JToken.Parse(content);
+                                    Log.Debug($"  ✓ JSON hợp lệ");
+                                    
+                                    if (content.Length < 300)
+                                    {
+                                        Log.Debug($"  Preview: {content}");
+                                    }
+                                    else
+                                    {
+                                        Log.Debug($"  Preview (300 chars): {content.Substring(0, 300)}...");
+                                    }
+                                }
+                                catch (Exception jsonEx)
+                                {
+                                    Log.Error($"  ✗ JSON không hợp lệ: {jsonEx.Message}");
+                                }
+                            }
+                            else if (content.Contains("<html") || content.Contains("<!DOCTYPE"))
+                            {
+                                Log.Error($"  ✗ Response là HTML, không phải JSON!");
+                                Log.Error($"  → League name có thể SAI hoặc API đã thay đổi");
+                                Log.Error($"  Preview: {content.Substring(0, Math.Min(200, content.Length))}...");
+                            }
+                            else
+                            {
+                                Log.Error($"  ⚠ Response không phải JSON hay HTML");
+                                Log.Debug($"  Preview: {content.Substring(0, Math.Min(200, content.Length))}...");
+                            }
+                        }
+                        else
+                        {
+                            Log.Error($"  ✗ Response rỗng!");
+                        }
+                    }
+                    else
+                    {
+                        Log.Error($"  ✗ HTTP Error: {statusCode} {response.StatusCode}");
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        if (!string.IsNullOrEmpty(errorContent))
+                        {
+                            Log.Error($"  Error content: {errorContent.Substring(0, Math.Min(200, errorContent.Length))}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"  ✗ Exception: {ex.Message}");
+                }
+            }
+            
+            Log.Debug($"");
+            Log.Debug($"========================================");
+            Log.Debug($"KẾT THÚC TEST URLs");
+            Log.Debug($"Chỉ test 5 URLs đầu tiên. Nếu có lỗi, kiểm tra League name!");
+            Log.Debug($"========================================");
+        }
     }
 
 }
